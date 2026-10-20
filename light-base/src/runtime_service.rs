@@ -2173,8 +2173,10 @@ async fn run_background<TPlat: PlatformRef>(
                     ?timeout_per_request
                 );
 
+                // Cloning a `HostVmPrototype` re-instantiates the VM. Keep the `Arc` and clone
+                // only right before each execution attempt.
                 let runtime = match &pinned_runtime.runtime {
-                    Ok(rt) => rt.clone(),
+                    Ok(rt) => rt,
                     Err(error) => {
                         // The runtime call can't succeed because smoldot was incapable of
                         // compiling the runtime.
@@ -2231,7 +2233,7 @@ async fn run_background<TPlat: PlatformRef>(
                             function_name,
                             api_version,
                             parameters_vectored,
-                            runtime,
+                            runtime: pinned_runtime,
                             total_attempts,
                             timeout_per_request,
                             inaccessible_errors: Vec::with_capacity(cmp::min(
@@ -2369,6 +2371,7 @@ async fn run_background<TPlat: PlatformRef>(
                                 parameters_size = operation.parameters_vectored.len()
                             );
 
+                            let runtime = operation.vm_prototype().clone();
                             let state = StorageOnDemandState {
                                 block_hash: operation.block_hash,
                                 block_number: operation.block_number,
@@ -2376,7 +2379,7 @@ async fn run_background<TPlat: PlatformRef>(
                                 function_name: operation.function_name,
                                 api_version: operation.api_version,
                                 call: None,
-                                runtime: Some(operation.runtime),
+                                runtime: Some(runtime),
                                 parameters_vectored: operation.parameters_vectored,
                                 total_attempts: operation.total_attempts,
                                 timeout_per_request: operation.timeout_per_request,
@@ -2447,7 +2450,7 @@ async fn run_background<TPlat: PlatformRef>(
                 if let Some((call_proof, call_proof_sender)) = call_proof_and_sender {
                     match runtime_call_single_attempt(
                         &background.platform,
-                        operation.runtime.clone(),
+                        operation.vm_prototype().clone(),
                         &operation.function_name,
                         &operation.parameters_vectored,
                         &operation.block_state_trie_root_hash,
@@ -3145,11 +3148,21 @@ struct RuntimeCallRequest {
     /// Version of the API that was found. `Some` if and only if an API requirement was passed.
     api_version: Option<u32>,
     parameters_vectored: Vec<u8>,
-    runtime: executor::host::HostVmPrototype,
+    /// Always contains `Ok`, as checked before building the request.
+    runtime: Arc<Runtime>,
     total_attempts: u32,
     timeout_per_request: Duration,
     inaccessible_errors: Vec<RuntimeCallInaccessibleError>,
     result_tx: oneshot::Sender<Result<RuntimeCallSuccess, RuntimeCallError>>,
+}
+
+impl RuntimeCallRequest {
+    fn vm_prototype(&self) -> &executor::host::HostVmPrototype {
+        self.runtime
+            .runtime
+            .as_ref()
+            .unwrap_or_else(|_| unreachable!())
+    }
 }
 
 struct Runtime {
