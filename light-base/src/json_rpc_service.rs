@@ -45,13 +45,7 @@ use crate::{
     transactions_service,
 };
 
-use alloc::{
-    borrow::Cow,
-    boxed::Box,
-    format,
-    string::{String, ToString as _},
-    sync::Arc,
-};
+use alloc::{borrow::Cow, boxed::Box, format, string::String, sync::Arc};
 use core::{num::NonZero, pin::Pin};
 use futures_lite::StreamExt as _;
 
@@ -218,9 +212,11 @@ impl<TPlat: PlatformRef> Frontend<TPlat> {
     /// if the requests take a long time to process or if [`Frontend::next_json_rpc_response`]
     /// isn't called often enough.
     pub fn queue_rpc_request(&self, json_rpc_request: String) -> Result<(), HandleRpcError> {
-        let log_friendly_request =
-            crate::util::truncated_str(json_rpc_request.chars().filter(|c| !c.is_control()), 250)
-                .to_string();
+        // Experiment: full requests in the logs, to replay and break down what a client sends.
+        let log_friendly_request = json_rpc_request
+            .chars()
+            .filter(|c| !c.is_control())
+            .collect::<String>();
 
         match self.requests_tx.try_send(json_rpc_request) {
             Ok(()) => {
